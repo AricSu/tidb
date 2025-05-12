@@ -6,28 +6,27 @@ on:
 jobs:
   fetch-and-push:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout this repository
         uses: actions/checkout@v3
 
-      - name: Configure Git
+      - name: Configure Git identity
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Clone upstream repository
+      - name: Clone and fetch all upstream branches
         run: |
-          git clone --depth=1 --no-checkout https://github.com/pingcap/tidb.git tidb-upstream
+          git clone https://github.com/pingcap/tidb.git tidb-upstream
           cd tidb-upstream
-          git fetch --all
-        shell: bash
+          git fetch origin "+refs/heads/*:refs/remotes/origin/*"
 
-      - name: Get branch creation times
+      - name: Extract branch creation times
         run: |
           cd tidb-upstream
 
-          # 获取所有远程分支（排除 HEAD ->）
-          branches=$(git branch -r | grep "origin/" | grep -v 'HEAD' | sed 's|origin/||')
+          branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v 'HEAD' | sed 's|^origin/||')
 
           branch_data=()
           for branch in $branches; do
@@ -35,16 +34,18 @@ jobs:
             branch_data+=("{\"branch\": \"$branch\", \"created_at\": \"$create_time\"}")
           done
 
-          # 写入 JSON 文件
           echo "[" > branches.json
           printf "%s\n" "${branch_data[@]}" | sed '$!s/$/,/' >> branches.json
           echo "]" >> branches.json
 
-      - name: Push to vitepress site repo
+      - name: Push JSON to VitePress repo
+        env:
+          PUSH_TOKEN: ${{ secrets.TIDB_PUSH_TOKEN }}
         run: |
-          git clone https://x-access-token:${{ secrets.TIDB_PUSH_TOKEN }}@github.com/AricSu/aricsu.github.io.git site-repo
+          git clone https://x-access-token:${PUSH_TOKEN}@github.com/AricSu/aricsu.github.io.git site-repo
           mkdir -p site-repo/docs/public/tihc/api
           cp tidb-upstream/branches.json site-repo/docs/public/tihc/api/branches.json
+
           cd site-repo
           git add docs/public/tihc/api/branches.json
           git commit -m "chore: update branches.json from tidb" || echo "No changes to commit"
