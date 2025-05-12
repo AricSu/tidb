@@ -1,0 +1,22 @@
+name: Sync with upstream and fetch branches
+
+on:
+  workflow_dispatch:  # 手动触发
+  schedule:
+    - cron: '0 2 * * *'  # 每天 UTC+2 运行一次
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout this repository
+      uses: actions/checkout@v3
+
+    - name: Add upstream remote
+      run: |
+        git remote add upstream https://github.com/pingcap/tidb.git
+        git fetch upstream "+refs/heads/*:refs/remotes/upstream/*"
+      
+    - name: Verify upstream branches
+      run: git branch -r  # 输出所有远程分支
