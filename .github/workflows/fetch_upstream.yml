@@ -1,61 +1,51 @@
-name: Sync TiDB Branches to GitHub Pages
+name: Fetch all branches and creation time
 
 on:
-  workflow_dispatch:  # Allows manual triggering of the workflow
-  schedule:
-    - cron: '0 2 * * *'  # Automatically run the workflow every day at 2 AM UTC+2
+  workflow_dispatch:
 
 jobs:
-  sync-branches:
+  fetch-and-push:
     runs-on: ubuntu-latest
-
     steps:
-    # Step 1: Checkout the source repository (pingcap/tidb)
-    - name: Checkout pingcap/tidb repository
-      uses: actions/checkout@v3
-      with:
-        repository: pingcap/tidb
+      - name: Checkout this repository
+        uses: actions/checkout@v3
 
-    # Step 2: Get all branches and their creation times
-    - name: Get all branches and their creation times
-      run: |
-        # Fetch all remote branches from the origin
-        git fetch --all
-        
-        # Get a list of remote branches and store it in a variable
-        branches=$(git branch -r | grep 'origin/' | sed 's/origin\///')
-        
-        # Get creation time of each branch (first commit date)
-        branch_data=()
-        for branch in $branches; do
-          # Get creation time for each branch (first commit date)
-          create_time=$(git log --reverse --pretty=format:"%ad" --date=iso --max-count=1 "origin/$branch")
-          branch_data+=("{\"branch\": \"$branch\", \"created_at\": \"$create_time\"}")
-        done
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-        # Create JSON file
-        echo "[" > branches.json
-        echo "${branch_data[*]}" | sed 's/}/},/g' | sed 's/,$//' >> branches.json
-        echo "]" >> branches.json
+      - name: Clone upstream repository
+        run: |
+          git clone --depth=1 --no-checkout https://github.com/pingcap/tidb.git tidb-upstream
+          cd tidb-upstream
+          git fetch --all
+        shell: bash
 
-    # Step 3: Checkout the GitHub Pages repository to push the JSON file
-    - name: Checkout GitHub Pages repository
-      uses: actions/checkout@v3
-      with:
-        repository: AricSu/aricsu.github.io
-        path: pages
+      - name: Get branch creation times
+        run: |
+          cd tidb-upstream
 
-    # Step 4: Commit and push the branches JSON to the target repository
-    - name: Commit and push branches.json to pages
-      run: |
-        # Create the necessary directory and copy the JSON file
-        mkdir -p pages/docs/public/tihc/api
-        cp branches.json pages/docs/public/tihc/api/branches.json
+          # 获取所有远程分支（排除 HEAD ->）
+          branches=$(git branch -r | grep "origin/" | grep -v 'HEAD' | sed 's|origin/||')
 
-        # Commit and push the changes to the pages repository
-        cd pages
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
-        git add docs/public/tihc/api/branches.json
-        git commit -m "Update TiDB branches with creation times"
-        git push origin main
+          branch_data=()
+          for branch in $branches; do
+            create_time=$(git log --reverse --pretty=format:"%ad" --date=iso --max-count=1 "origin/$branch")
+            branch_data+=("{\"branch\": \"$branch\", \"created_at\": \"$create_time\"}")
+          done
+
+          # 写入 JSON 文件
+          echo "[" > branches.json
+          printf "%s\n" "${branch_data[@]}" | sed '$!s/$/,/' >> branches.json
+          echo "]" >> branches.json
+
+      - name: Push to vitepress site repo
+        run: |
+          git clone https://x-access-token:${{ secrets.PUSH_TOKEN }}@github.com/AricSu/aricsu.github.io.git site-repo
+          mkdir -p site-repo/docs/public/tihc/api
+          cp tidb-upstream/branches.json site-repo/docs/public/tihc/api/branches.json
+          cd site-repo
+          git add docs/public/tihc/api/branches.json
+          git commit -m "chore: update branches.json from tidb" || echo "No changes to commit"
+          git push
