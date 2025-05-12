@@ -1,4 +1,4 @@
-name: Sync with upstream and fetch branch creation times
+name: Sync TiDB Branches to GitHub Pages
 
 on:
   workflow_dispatch:  # 手动触发
@@ -6,47 +6,57 @@ on:
     - cron: '0 2 * * *'  # 每天 UTC+2 运行一次
 
 jobs:
-  sync-upstream:
+  sync-branches:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout this repository
+    # Step 1: Checkout the source repository (pingcap/tidb)
+    - name: Checkout pingcap/tidb repository
       uses: actions/checkout@v3
+      with:
+        repository: pingcap/tidb
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Add upstream remote and fetch branches
+    # Step 2: Get all branches and their creation times
+    - name: Get all branches and their creation times
       run: |
-        git remote add upstream https://github.com/pingcap/tidb.git
-        git fetch upstream "+refs/heads/*:refs/remotes/upstream/*"
-
-    - name: Verify fetched branches
-      run: git branch -r
-
-    - name: Extract upstream branch creation times
-      run: |
-        echo "[" > upstream_branch_times.json
-
-        first=true
-        for branch in $(git for-each-ref --format="%(refname:short)" refs/remotes/upstream/); do
-          first_commit=$(git rev-list --reverse "$branch" | head -n 1)
-          if [ -n "$first_commit" ]; then
-            created_at=$(git show -s --format=%cI "$first_commit") # ISO 8601 格式
-            branch_name=${branch#upstream/}
-
-            if [ "$first" = true ]; then
-              first=false
-            else
-              echo "," >> upstream_branch_times.json
-            fi
-
-            echo "  {\"branch\": \"$branch_name\", \"created_at\": \"$created_at\"}" >> upstream_branch_times.json
-          fi
+        # 获取所有远程分支的名称
+        branches=$(git branch -r | grep "origin/" | sed 's/origin\///')
+        
+        # 获取每个分支的创建时间（即第一次提交的时间）
+        branch_data=()
+        for branch in $branches; do
+          # 获取每个分支的创建时间（即第一次提交的时间）
+          create_time=$(git log --reverse --pretty=format:"%ad" --date=iso --max-count=1 "origin/$branch")
+          branch_data+=("{\"branch\": \"$branch\", \"created_at\": \"$create_time\"}")
         done
 
-        echo "]" >> upstream_branch_times.json
-        cat upstream_branch_times.json
+        # 创建 JSON 文件
+        echo "[" > branches.json
+        echo "${branch_data[*]}" | sed 's/}/},/g' | sed 's/,$//' >> branches.json
+        echo "]" >> branches.json
 
-    - name: Upload branch creation times
-      uses: actions/upload-artifact@v4
+    # Step 3: Push the JSON to the GitHub Pages repository
+    - name: Push to GitHub Pages repository
+      uses: git@github.com:AricSu/aricsu.github.io.git
       with:
-        name: upstream-branch-creation-times
-        path: upstream_branch_times.json
+        repository: AricSu/aricsu.github.io
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # Step 4: Commit and push the branches JSON to the target repository
+    - name: Commit and push branches.json to pages
+      run: |
+        # Checkout the target GitHub Pages repository
+        git clone https://github.com/AricSu/aricsu.github.io.git pages
+        cd pages
+
+        # Create the necessary directory and copy the JSON file
+        mkdir -p docs/public/tihc/api
+        cp ../branches.json docs/public/tihc/api/branches.json
+
+        # Commit and push the changes to the pages repository
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add docs/public/tihc/api/branches.json
+        git commit -m "Update TiDB branches with creation times"
+        git push origin main
