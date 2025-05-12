@@ -1,7 +1,9 @@
-name: Fetch all branches and creation time
+name: Fetch all branches and tags metadata
 
 on:
   workflow_dispatch:  # 手动触发
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
   fetch-and-push:
@@ -22,29 +24,45 @@ jobs:
           git fetch --all
         shell: bash
 
-      - name: Extract branch creation times
+      - name: Extract branch and tag creation times
         run: |
           cd tidb-upstream
 
+          # 获取所有分支（包括远程分支）
           branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v 'HEAD')
 
           branch_data=()
           for branch in $branches; do
             create_time=$(git log --reverse --pretty=format:"%ad" --date=iso --max-count=1 "$branch")
             name=$(echo "$branch" | sed 's|^origin/||')
-            branch_data+=("{\"branch\": \"$name\", \"created_at\": \"$create_time\"}")
+            branch_data+=("{\"branch\": \"$name\", \"create_at\": \"$create_time\", \"type\": \"branch\"}")
           done
 
-          echo "[" > branches.json
-          printf "%s\n" "${branch_data[@]}" | sed '$!s/$/,/' >> branches.json
-          echo "]" >> branches.json
+          # 获取所有标签
+          tags=$(git for-each-ref --format='%(refname:short)' refs/tags)
+
+          tag_data=()
+          for tag in $tags; do
+            create_time=$(git log --reverse --pretty=format:"%ad" --date=iso --max-count=1 "$tag")
+            tag_data+=("{\"tag\": \"$tag\", \"create_at\": \"$create_time\", \"type\": \"tag\"}")
+          done
+
+          # 生成完整的 JSON 输出
+          echo "{" > tidb_branches_and_tags_metadata.json
+          echo "\"branches\": [" >> tidb_branches_and_tags_metadata.json
+          printf "%s\n" "${branch_data[@]}" | sed '$!s/$/,/' >> tidb_branches_and_tags_metadata.json
+          echo "]" >> tidb_branches_and_tags_metadata.json
+          echo ",\"tags\": [" >> tidb_branches_and_tags_metadata.json
+          printf "%s\n" "${tag_data[@]}" | sed '$!s/$/,/' >> tidb_branches_and_tags_metadata.json
+          echo "]" >> tidb_branches_and_tags_metadata.json
+          echo "}" >> tidb_branches_and_tags_metadata.json
 
       - name: Push to vitepress site repo
         run: |
           git clone https://x-access-token:${{ secrets.TIDB_PUSH_TOKEN }}@github.com/AricSu/aricsu.github.io.git site-repo
           mkdir -p site-repo/docs/public/tihc/api
-          cp tidb-upstream/branches.json site-repo/docs/public/tihc/api/branches.json
+          cp tidb-upstream/tidb_branches_and_tags_metadata.json site-repo/docs/public/tihc/api/tidb_branches_and_tags_metadata.json
           cd site-repo
-          git add docs/public/tihc/api/branches.json
-          git commit -m "chore: update branches.json from tidb" || echo "No changes to commit"
+          git add docs/public/tihc/api/tidb_branches_and_tags_metadata.json
+          git commit -m "chore: update tidb_branches_and_tags_metadata.json from tidb" || echo "No changes to commit"
           git push
