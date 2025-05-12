@@ -42,7 +42,7 @@ jobs:
 
       - name: Push to vitepress site repo
         run: |
-          git clone https://x-access-token:${{ secrets.PUSH_TOKEN }}@github.com/AricSu/aricsu.github.io.git site-repo
+          git clone https://x-access-token:${{ secrets.TIDB_PUSH_TOKEN }}@github.com/AricSu/aricsu.github.io.git site-repo
           mkdir -p site-repo/docs/public/tihc/api
           cp tidb-upstream/branches.json site-repo/docs/public/tihc/api/branches.json
           cd site-repo
