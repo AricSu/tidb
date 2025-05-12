@@ -1,4 +1,4 @@
-name: Sync with upstream and fetch branches
+name: Sync with upstream and fetch branch creation times
 
 on:
   workflow_dispatch:  # 手动触发
@@ -13,10 +13,40 @@ jobs:
     - name: Checkout this repository
       uses: actions/checkout@v3
 
-    - name: Add upstream remote
+    - name: Add upstream remote and fetch branches
       run: |
         git remote add upstream https://github.com/pingcap/tidb.git
         git fetch upstream "+refs/heads/*:refs/remotes/upstream/*"
-      
-    - name: Verify upstream branches
-      run: git branch -r  # 输出所有远程分支
+
+    - name: Verify fetched branches
+      run: git branch -r
+
+    - name: Extract upstream branch creation times
+      run: |
+        echo "[" > upstream_branch_times.json
+
+        first=true
+        for branch in $(git for-each-ref --format="%(refname:short)" refs/remotes/upstream/); do
+          first_commit=$(git rev-list --reverse "$branch" | head -n 1)
+          if [ -n "$first_commit" ]; then
+            created_at=$(git show -s --format=%cI "$first_commit") # ISO 8601 格式
+            branch_name=${branch#upstream/}
+
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo "," >> upstream_branch_times.json
+            fi
+
+            echo "  {\"branch\": \"$branch_name\", \"created_at\": \"$created_at\"}" >> upstream_branch_times.json
+          fi
+        done
+
+        echo "]" >> upstream_branch_times.json
+        cat upstream_branch_times.json
+
+    - name: Upload branch creation times
+      uses: actions/upload-artifact@v4
+      with:
+        name: upstream-branch-creation-times
+        path: upstream_branch_times.json
