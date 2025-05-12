@@ -1,9 +1,9 @@
 name: Sync TiDB Branches to GitHub Pages
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:  # Allows manual triggering of the workflow
   schedule:
-    - cron: '0 2 * * *'  # 每天 UTC+2 运行一次
+    - cron: '0 2 * * *'  # Automatically run the workflow every day at 2 AM UTC+2
 
 jobs:
   sync-branches:
@@ -20,23 +20,23 @@ jobs:
     # Step 2: Get all branches and their creation times
     - name: Get all branches and their creation times
       run: |
-        # 获取所有远程分支的名称
+        # Get all remote branch names
         branches=$(git branch -r | grep "origin/" | sed 's/origin\///')
         
-        # 获取每个分支的创建时间（即第一次提交的时间）
+        # Get creation time of each branch (first commit date)
         branch_data=()
         for branch in $branches; do
-          # 获取每个分支的创建时间（即第一次提交的时间）
+          # Get creation time for each branch (first commit date)
           create_time=$(git log --reverse --pretty=format:"%ad" --date=iso --max-count=1 "origin/$branch")
           branch_data+=("{\"branch\": \"$branch\", \"created_at\": \"$create_time\"}")
         done
 
-        # 创建 JSON 文件
+        # Create JSON file
         echo "[" > branches.json
         echo "${branch_data[*]}" | sed 's/}/},/g' | sed 's/,$//' >> branches.json
         echo "]" >> branches.json
 
-    # Step 3: Push the JSON to the GitHub Pages repository
+    # Step 3: Push to GitHub Pages repository
     - name: Push to GitHub Pages repository
       uses: git@github.com:AricSu/aricsu.github.io.git
       with:
